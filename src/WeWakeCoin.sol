@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 /* 
 __        __      _    _          _      
 \ \      / /__ __| |__| | ___  __| | ___ 
@@ -8,8 +6,6 @@ __        __      _    _          _
    \_/\_/ \___|_|   \__|_|\___|\__,_|\___|
                                            
 */
-
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -40,6 +36,8 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
 
     // Временная метка, после которой возможно сжигание. 0, если процесс не запущен.
     uint256 private _burnPossibleFromTimestamp;
+    // Сумма, заблокированная для сжигания при вызове `openBurn`.
+    uint256 private _burnAmount;
 
     constructor(address initialOwner) 
         ERC20("WeWakeCoin", "WAKE") 
@@ -56,7 +54,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
     function burnInfo() external view returns (uint256 possibleFromTimestamp, uint256 amount) {
         if (_burnPossibleFromTimestamp != 0) {
             possibleFromTimestamp = _burnPossibleFromTimestamp;
-            amount = balanceOf(address(this));
+            amount = _burnAmount;
         }
     }
 
@@ -73,6 +71,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
         // Переводим токены на контракт для блокировки
         _transfer(msg.sender, address(this), amount);
 
+        _burnAmount = amount;
         _burnPossibleFromTimestamp = block.timestamp + BURN_TIMELOCK;
         emit OpenBurn(_burnPossibleFromTimestamp, amount);
     }
@@ -86,11 +85,12 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
         if (unlockTime == 0) revert BurnProcessNotInitiated();
         if (block.timestamp < unlockTime) revert BurnTimelockNotExpired(block.timestamp, unlockTime);
 
-        uint256 amountToBurn = balanceOf(address(this));
-        
+        uint256 amountToBurn = _burnAmount;
+
         _burn(address(this), amountToBurn);
+        _burnAmount = 0;
         _burnPossibleFromTimestamp = 0;
-        
+
         emit FinishBurn(block.timestamp, amountToBurn);
     }
 
