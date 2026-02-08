@@ -9,48 +9,92 @@ __        __      _    _          _
                                            
 */
 
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 
+/**
+ * @title WeWakeCoin
+ * @dev ERC20 токен с механизмами голосования и отложенного сжигания токенов.
+ */
 contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
-    event OpenBurn(uint256 burnPossibleFromBlock, uint256 amount);
+    // --- Ошибки (Custom Errors) для экономии газа ---
+    error BurnProcessAlreadyActive();
+    error BurnAmountZero();
+    error InsufficientBalanceToBurn();
+    error BurnProcessNotInitiated();
+    error BurnTimelockNotExpired(uint256 current, uint256 required);
 
-    // Assuming average block time of 12 seconds, this gives approximately 2.5 days
-    uint256 private constant BURN_TIMELOCK_BLOCKS = 18000; // 2.5 * 24 * 60 * 60 / 12
+    // --- События ---
+    event OpenBurn(uint256 burnPossibleFromTimestamp, uint256 amount);
+    event FinishBurn(uint256 timestamp, uint256 amount);
 
-    uint256 private _burnPossibleFromBlock;
+    // Константа времени блокировки: 2.5 дня
+    // Использование времени (timestamp) надежнее, чем номер блока (block.number) для L2 сетей
+    uint256 public constant BURN_TIMELOCK = 2 days + 12 hours;
 
-    constructor(address wallet) ERC20("WeWakeCoin", "WAKE") ERC20Permit("WeWakeCoin") Ownable(wallet) {
-        _mint(wallet, 2150000000000000000000000000);
+    // Временная метка, после которой возможно сжигание. 0, если процесс не запущен.
+    uint256 private _burnPossibleFromTimestamp;
+
+    constructor(address initialOwner) 
+        ERC20("WeWakeCoin", "WAKE") 
+        ERC20Permit("WeWakeCoin") 
+        Ownable(initialOwner) 
+    {
+        // 2.15 миллиарда токенов. Используем underscores для читаемости.
+        _mint(initialOwner, 2_150_000_000 * 10**decimals());
     }
 
-    function burnInfo() public view returns (uint256 possibleFromBlock, uint256 amount) {
-        if (_burnPossibleFromBlock != 0) {
-            possibleFromBlock = _burnPossibleFromBlock;
+    /**
+     * @notice Возвращает информацию о текущем процессе сжигания.
+     */
+    function burnInfo() external view returns (uint256 possibleFromTimestamp, uint256 amount) {
+        if (_burnPossibleFromTimestamp != 0) {
+            possibleFromTimestamp = _burnPossibleFromTimestamp;
             amount = balanceOf(address(this));
         }
     }
 
-    function openBurn(uint256 amount) external {
-        require(_burnPossibleFromBlock == 0, "Burn process already in timelock phase");
-        require(amount != 0, "Amount to burn cannot be 0");
-        require(amount <= balanceOf(msg.sender), "Not enough tokens to burn");
+    /**
+     * @notice Запускает процесс сжигания. Токены блокируются на контракте.
+     * @dev Доступно только владельцу.
+     * @param amount Количество токенов для сжигания.
+     */
+    function openBurn(uint256 amount) external onlyOwner {
+        if (_burnPossibleFromTimestamp != 0) revert BurnProcessAlreadyActive();
+        if (amount == 0) revert BurnAmountZero();
+        if (amount > balanceOf(msg.sender)) revert InsufficientBalanceToBurn();
 
-        transfer(address(this), amount);
-        _burnPossibleFromBlock = block.number + BURN_TIMELOCK_BLOCKS;
-        emit OpenBurn(_burnPossibleFromBlock, amount);
+        // Переводим токены на контракт для блокировки
+        _transfer(msg.sender, address(this), amount);
+
+        _burnPossibleFromTimestamp = block.timestamp + BURN_TIMELOCK;
+        emit OpenBurn(_burnPossibleFromTimestamp, amount);
     }
 
+    /**
+     * @notice Завершает процесс сжигания после истечения таймлока.
+     */
     function finishBurn() external {
-        require(_burnPossibleFromBlock != 0, "Burn process was not initiated");
-        require(_burnPossibleFromBlock <= block.number, "Burn process is still in timelock phase");
+        uint256 unlockTime = _burnPossibleFromTimestamp;
+        
+        if (unlockTime == 0) revert BurnProcessNotInitiated();
+        if (block.timestamp < unlockTime) revert BurnTimelockNotExpired(block.timestamp, unlockTime);
 
-        _burn(address(this), balanceOf(address(this)));
-        _burnPossibleFromBlock = 0;
+        uint256 amountToBurn = balanceOf(address(this));
+        
+        _burn(address(this), amountToBurn);
+        _burnPossibleFromTimestamp = 0;
+        
+        emit FinishBurn(block.timestamp, amountToBurn);
     }
+
+    // --- Overrides (требуются Solidity для разрешения конфликтов наследования) ---
 
     function nonces(address owner) public view virtual override(ERC20Permit, Nonces) returns (uint256) {
         return super.nonces(owner);
