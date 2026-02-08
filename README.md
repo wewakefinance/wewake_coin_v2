@@ -1,78 +1,91 @@
-# WeWake WAKE Token Contract
+# WeWake WAKE Token
 
-Details on WeWake WAKE Token deployment, audits and further details will be added soon!
+Minimal ERC20 token with governance features used by the WeWake project.
 
+This repository contains the `WeWakeCoin` contract (ERC20 + Permit + Votes) and
+unit tests implemented with Foundry.
 
-## Foundry
+## Status
 
-This repository was initialized using Foundry.
-Below you can find documentation on Foundry usage.
+- Contract: `src/WeWakeCoin.sol` (ERC20, ERC20Permit, ERC20Votes, Ownable)
+- Tests: `test/WeWakeCoin.t.sol` (unit tests for burn timelock, permissions, votes)
+- CI: GitHub Actions (runs `forge test`)
 
+## Highlights
 
-Foundry consists of:
+- Timelocked burn workflow: owner calls `openBurn(amount)` to lock an amount
+  for burning after a timelock. `finishBurn()` burns only the previously
+  locked amount.
+- Recent fix: the contract now stores an explicit `_burnAmount` so tokens sent
+  to the contract after `openBurn` are not accidentally burned.
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+## Prerequisites
 
-## Documentation
+- Linux / macOS / Windows WSL
+- Foundry (forge, cast, anvil). Install with:
 
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+source ~/.bashrc
+foundryup
 ```
 
-### Test
+## Quick start
 
-```shell
-$ forge test
+Clone and run tests:
+
+```bash
+git clone https://github.com/wewakefinance/wewake_coin_v2
+cd wewake_coin_v2
+forge test
 ```
 
-### Format
+Run a single test or contract:
 
-```shell
-$ forge fmt
+```bash
+forge test --match-contract WeWakeCoinTest
+forge test --match-test testFinishBurnDoesNotBurnExtraTokens
 ```
 
-### Gas Snapshots
+Start a local node with Anvil:
 
-```shell
-$ forge snapshot
+```bash
+anvil
 ```
 
-### Anvil
+## Deploy (example)
 
-```shell
-$ anvil
+Use `forge script` with `--broadcast` to publish a script in `script/`.
+
+```bash
+forge script script/WeWakeCoin.s.sol:WeWakeCoinScript \
+  --rpc-url <RPC_URL> \
+  --private-key <PRIVATE_KEY> \
+  --broadcast
 ```
 
-### Deploy
+## Testing notes
 
-```shell
-$ forge script script/WeWakeCoin.s.sol:WeWakeCoinScript \
-  --rpc-url https://eth-mainnet.g.alchemy.com/v2/<your_alchemy_project_id> \
-  --private-key <your_private_key> \
-  --broadcast \
-  --verify \
-  --etherscan-api-key <your_etherscan_api_key>
-```
+- Unit tests exercise the timelock burn flow and votes/delegation. All tests
+  should pass locally (`forge test`).
+- A test `testFinishBurnDoesNotBurnExtraTokens` was added to ensure that only
+  the explicitly locked amount is burned and that later transfers to the
+  contract are preserved.
 
-### Cast
+## Security & recommendations
 
-```shell
-$ cast <subcommand>
-```
+- `finishBurn()` is currently public — decide whether to restrict it to
+  `onlyOwner` or keep it callable by anyone (gas-paid finalization). Document
+  the intended behavior in the contract NatSpec.
+- Consider adding a `cancelBurn()` for owner-initiated rollback before
+  timelock expiry, if desired by the protocol design.
+- Use audits and automated tools (Slither, MythX) for production releases.
 
-### Help
+## Contributing
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Please open issues or pull requests. Follow the existing code style and run
+`forge test` before submitting changes.
+
+## License
+
+MIT
