@@ -122,6 +122,36 @@ contract WeWakeCoinTest is Test {
         assertEq(amt, 0);
     }
 
+    function testFinishBurnDoesNotBurnExtraTokens() public {
+        uint256 burnAmount = 100 ether;
+        uint256 extra = 50 ether;
+
+        // Owner opens burn and also sends `extra` to `user`
+        vm.startPrank(owner);
+        coin.openBurn(burnAmount);
+        coin.transfer(user, extra);
+        vm.stopPrank();
+
+        // `user` sends extra tokens to the contract address
+        vm.startPrank(user);
+        coin.transfer(address(coin), extra);
+        vm.stopPrank();
+
+        // Move time forward and finish burn
+        vm.startPrank(owner);
+        vm.warp(block.timestamp + 2 days + 12 hours + 1);
+
+        uint256 beforeTotalSupply = coin.totalSupply();
+
+        coin.finishBurn();
+        vm.stopPrank();
+
+        // Contract should keep the extra tokens sent by `user`
+        assertEq(coin.balanceOf(address(coin)), extra);
+        // Total supply should decrease only by the originally locked burnAmount
+        assertEq(coin.totalSupply(), beforeTotalSupply - burnAmount);
+    }
+
     function testVotingPowerTransfer() public {
         vm.startPrank(owner);
         uint256 ownerVotesBefore = coin.getVotes(owner);
