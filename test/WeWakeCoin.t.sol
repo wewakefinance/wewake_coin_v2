@@ -163,8 +163,8 @@ contract WeWakeCoinTest is Test {
 
     function testCancelBurnReturnsTokensToOwner() public {
         uint256 amount = 120 ether;
-
         vm.startPrank(owner);
+        uint256 ownerBefore = coin.balanceOf(owner);
         coin.openBurn(amount);
         // Owner decides to cancel before timelock
         coin.cancelBurn();
@@ -172,7 +172,7 @@ contract WeWakeCoinTest is Test {
 
         // Contract should have zero balance and owner should have the tokens back
         assertEq(coin.balanceOf(address(coin)), 0);
-        assertEq(coin.balanceOf(owner), 2_150_000_000 ether - amount + 0); // owner balance back
+        assertEq(coin.balanceOf(owner), ownerBefore);
 
         (uint256 ts, uint256 amt) = coin.burnInfo();
         assertEq(ts, 0);
