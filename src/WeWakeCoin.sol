@@ -28,6 +28,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
 
     // --- События ---
     event OpenBurn(uint256 burnPossibleFromTimestamp, uint256 amount);
+    event CancelBurn(uint256 timestamp, uint256 amount);
     event FinishBurn(uint256 timestamp, uint256 amount);
 
     // Константа времени блокировки: 2.5 дня
@@ -92,6 +93,25 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, Ownable {
         _burnPossibleFromTimestamp = 0;
 
         emit FinishBurn(block.timestamp, amountToBurn);
+    }
+
+    /**
+     * @notice Отменяет запущенный процесс сжигания и возвращает токены владельцу.
+     * @dev Доступно только владельцу.
+     */
+    function cancelBurn() external onlyOwner {
+        uint256 unlockTime = _burnPossibleFromTimestamp;
+        if (unlockTime == 0) revert BurnProcessNotInitiated();
+
+        uint256 amountToReturn = _burnAmount;
+
+        // Переводим токены обратно владельцу
+        _transfer(address(this), owner(), amountToReturn);
+
+        _burnAmount = 0;
+        _burnPossibleFromTimestamp = 0;
+
+        emit CancelBurn(block.timestamp, amountToReturn);
     }
 
     // --- Overrides (требуются Solidity для разрешения конфликтов наследования) ---
