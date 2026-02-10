@@ -12,10 +12,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /**
  * @title WeWakeCoin
- * @dev ERC20 токен с механизмами голосования и отложенного сжигания токенов.
+ * @dev ERC20 contract with governance, scheduled burning, and pausing mechanisms.
+ * @notice ERC20 token for WeWake tokenomics, supporting governance, pausable transfers, two-step ownership, timelocked burning, recovery, and no minting after deploy.
  */
-/// @title WeWakeCoin
-/// @notice ERC20 токен для токеномики WeWake, с поддержкой governance, pausable, two-step ownership, burn с таймлоком, recovery, без минтинга после деплоя.
 contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2Step {
     using SafeERC20 for IERC20;
 
@@ -28,8 +27,10 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
     function nonces(address owner) public view override(ERC20Permit, Nonces) returns (uint256) {
         return super.nonces(owner);
     }
+
     address public multisig;
-    // --- Ошибки (Custom Errors) для экономии газа ---
+
+    // --- Custom Errors for Gas Efficiency ---
     error BurnProcessAlreadyActive();
     error BurnAmountZero();
     error InsufficientBalanceToBurn();
@@ -37,21 +38,33 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
     error BurnTimelockNotExpired(uint256 current, uint256 required);
 
     /**
-     * @notice Emitted when ERC20 tokens are rescued from the contract
-     * @param token Address of the rescued token
-     * @param to Recipient of the rescued tokens
-     * @param amount Amount of tokens rescued
+     * @notice Emitted when ERC20 tokens are rescued from the contract.
+     * @param token Address of the rescued token.
+     * @param to Recipient of the rescued tokens.
+     * @param amount Amount of tokens rescued.
      */
-
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
     event ContractPaused(address indexed account);
     event ContractUnpaused(address indexed account);
     event TokensBurned(address indexed account, uint256 amount, uint256 totalSupply);
     event FinishBurn(uint256 timestamp, uint256 amount);
 
-    // Константа времени блокировки: 2.5 дня
-    // Использование времени (timestamp) надежнее, чем номер блока (block.number) для L2 сетей
+    /**
+     * @notice Timelock duration for the burn process.
+     * @dev Set to 2.5 days (2 days + 12 hours). Using timestamp is safer than blocks for L2s.
+     */
     uint256 public constant BURN_TIMELOCK = 2 days + 12 hours;
+
+    /**
+     * @notice Timestamp when the burn process can be finalized.
+     * @dev 0 if no burn process is active.
+     */
+    uint256 private _burnPossibleFromTimestamp;
+
+    /**
+     * @notice Amount of tokens locked for the pending burn process.
+     */
+    uint256 private _burnAmount;
 
     /**
      * @notice Initializes the contract and distributes initial supply.
@@ -62,17 +75,25 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
      * @param treasury_ Address of the treasury wallet.
      */
     constructor(address owner_, address team_, address eco_, address treasury_)
-uint256 private _burnPossibleFromTimestamp;
-    // Сумма, заблокированная для сжигания при вызове `openBurn`.
-    uint256 private _burnAmount;
-
-        constructor(address owner_, address team_, address eco_, address treasury_)
-            ERC20("WeWakeCoin", "WAKE")
-            ERC20Permit("WeWakeCoin")
-            Ownable2Step(owner_)
-        {
+        ERC20("WeWakeCoin", "WAKE")
+        ERC20Permit("WeWakeCoin")
+        Ownable2Step(owner_)
+    {
+        // Tokenomics: 10% team, 10% eco, 10% treasury, 70% owner (multisig)
+        uint256 total = 2_150_000_000 * 10**decimals();
+        _mint(team_, total * 10 / 100);
+        _mint(eco_, total * 10 / 100);
+        _mint(treasury_, total * 10 / 100);
+        _mint(owner_, total * 70 / 100);
+        multisig = owner_;
         transferOwnership(owner_);
-            // Токеномика: 10% team, 10% eco, 10% treasury, 70% owner (multисиг)
+    }
+
+    modifier onlyAdmin() {
+        _checkAdmin();
+        _;
+    }
+
     /**
      * @notice Checks if the caller is an admin (owner or multisig).
      * @dev Internal function used by onlyAdmin modifier. Reverts if caller is not authorized.
@@ -85,15 +106,17 @@ uint256 private _burnPossibleFromTimestamp;
      * @notice Returns details about the active burn process.
      * @dev Useful for UI to display burn schedule.
      * @return possibleFromTimestamp Timestamp when burn determines execution (0 if not active).
-     * @return amount Amount of tokens locked for burning
-            transferOwnership(owner_);
+     * @return amount Amount of tokens locked for burning.
+     */
+    function burnInfo() external view returns (uint256 possibleFromTimestamp, uint256 amount) {
+        if (_burnPossibleFromTimestamp != 0) {
+            possibleFromTimestamp = _burnPossibleFromTimestamp;
+            amount = _burnAmount;
         }
-    modifier onlyAdmin() {
-        _checkAdmin();
-        _;
     }
 
-    function _checkAdmin() internal view .
+    /**
+     * @notice Pauses all token transfers.
      * @dev Can only be called by admin. Triggers stopped state.
      */
     function pause() external onlyAdmin {
@@ -105,21 +128,6 @@ uint256 private _burnPossibleFromTimestamp;
      * @notice Resumes all token transfers.
      * @dev Can only be called by admin. Returns to normal state.
      */
-
-    /**
-     * @notice Pauses all token transfers
-     * @dev Only callable by contract owner (multisig). Used in emergency situations.
-     * Requirements:
-     * - Caller must be the owner
-     * - Contract must not already be paused
-     */
-    /// @notice Приостановить все трансферы токенов (только multisig/owner)
-    function pause() external onlyAdmin {
-        _pause();
-        emit ContractPaused(_msgSender());
-    }
-
-    /// @notice Возобновить все трансферы токенов (только multisig/owner)
     function unpause() external onlyAdmin {
         _unpause();
         emit ContractUnpaused(_msgSender());
@@ -163,16 +171,16 @@ uint256 private _burnPossibleFromTimestamp;
         _burnAmount = 0;
         if (amount > 0) {
             _transfer(address(this), msg.sender, amount);
-        }covers ERC20 tokens mistakenly sent to this contract.
+        }
+    }
+
+    /**
+     * @notice Recovers ERC20 tokens mistakenly sent to this contract.
      * @dev Uses SafeERC20 for secure transfer. Cannot rescue WAKE tokens.
      * @param token Address of the token contract to rescue.
      * @param to Address where tokens will be sent.
      * @param amount Amount of tokens to transfer.
      */
-     * - `token` cannot be this contract's address
-     * - Contract must have sufficient balance of `token`
-     */
-    /// @notice Владелец может вернуть ошибочно отправленные токены (кроме WAKE)
     function rescueERC20(address token, address to, uint256 amount) external onlyAdmin {
         require(token != address(this), "WeWake: cannot rescue WAKE tokens");
         require(to != address(0), "WeWake: recipient is zero address");
@@ -199,7 +207,12 @@ uint256 private _burnPossibleFromTimestamp;
      * @dev Can only be called by the contract owner.
      * @param newMultisig Address of the new multisig wallet.
      */
-    function setMultisSolidity overrides for inheritance conflict resolution) ---
+    function setMultisig(address newMultisig) external onlyOwner {
+        require(newMultisig != address(0), "WeWake: zero address");
+        multisig = newMultisig;
+    }
+
+    // --- Overrides (Solidity overrides for inheritance conflict resolution) ---
 
     /**
      * @notice Hook that is called before any transfer of tokens.
@@ -207,12 +220,7 @@ uint256 private _burnPossibleFromTimestamp;
      * @param from Address sending tokens.
      * @param to Address receiving tokens.
      * @param amount Amount of tokens transferred.
-     */    }
-
-    // --- Overrides (требуются Solidity для разрешения конфликтов наследования) ---
-
-    // --- Overrides для корректного наследования (Certik, OZ) ---
-
+     */
     function _update(address from, address to, uint256 amount)
         internal
         override(ERC20, ERC20Votes, ERC20Pausable)
@@ -220,5 +228,4 @@ uint256 private _burnPossibleFromTimestamp;
         if (paused()) revert("WeWake: token transfer while paused");
         super._update(from, to, amount);
     }
-
 }
