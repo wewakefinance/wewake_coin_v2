@@ -68,7 +68,7 @@ contract WeWakeCoinTest is Test {
         assertEq(m.balanceOf(address(token)), 1000);
 
         vm.prank(owner);
-        token.rescueERC20(IERC20(address(m)), alice, 1000);
+        token.rescueERC20(address(m), alice, 1000);
 
         assertEq(m.balanceOf(alice), 1000);
         assertEq(m.balanceOf(address(token)), 0);

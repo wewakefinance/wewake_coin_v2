@@ -14,16 +14,17 @@ contract WeWakeCoinEdgeCasesTest is Test {
     address public alice = address(0x5);
 
     function setUp() public {
-        token = new WeWakeCoin(owner, team, eco, treasury);
+        // Deploy token with this contract as owner (msg.sender)
+        token = new WeWakeCoin(address(this), team, eco, treasury);
         token.setMultisig(multisig);
     }
 
     function testBurnTimelockEnforced() public {
         uint256 amount = 1000;
-        vm.prank(owner);
+        // Перевести токены на контракт для burn
+        token.transfer(address(token), amount);
         token.openBurn(amount);
         // Try to finish burn before timelock
-        vm.prank(owner);
         vm.expectRevert();
         token.finishBurn();
         // Fast-forward past timelock
@@ -38,17 +39,17 @@ contract WeWakeCoinEdgeCasesTest is Test {
 
     function testCancelBurnReturnsTokens() public {
         uint256 amount = 500;
-        vm.prank(owner);
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.transfer(address(token), amount);
         token.openBurn(amount);
         // Cancel burn
-        vm.prank(owner);
         token.cancelBurn();
         // Burn info should be reset
         (uint256 ts, uint256 amt) = token.burnInfo();
         assertEq(ts, 0);
         assertEq(amt, 0);
         // Owner balance restored
-        assertEq(token.balanceOf(owner), (1_000_000_000 * 10**token.decimals()) * 10 / 100);
+        assertEq(token.balanceOf(address(this)), balanceBefore);
     }
 
     function testOnlyAdminCanPause() public {

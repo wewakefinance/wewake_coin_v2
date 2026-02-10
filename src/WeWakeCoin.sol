@@ -5,6 +5,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
+import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -15,6 +16,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @title WeWakeCoin
 /// @notice ERC20 токен для токеномики WeWake, с поддержкой governance, pausable, two-step ownership, burn с таймлоком, recovery, без минтинга после деплоя.
 contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2Step {
+    // --- ERC20Votes/Permit compatibility override ---
+    function nonces(address owner) public view override(ERC20Permit, Nonces) returns (uint256) {
+        return super.nonces(owner);
+    }
+    address public multisig;
     // --- Ошибки (Custom Errors) для экономии газа ---
     error BurnProcessAlreadyActive();
     error BurnAmountZero();
@@ -44,13 +50,24 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
     // Сумма, заблокированная для сжигания при вызове `openBurn`.
     uint256 private _burnAmount;
 
-    constructor(address initialOwner)
-        ERC20("WeWakeCoin", "WAKE")
-        ERC20Permit("WeWakeCoin")
-        Ownable(initialOwner)
-    {
-        // 2.15 миллиарда токенов. Mint только в конструкторе.
-        _mint(initialOwner, 2_150_000_000 * 10**decimals());
+        constructor(address owner_, address team_, address eco_, address treasury_)
+            ERC20("WeWakeCoin", "WAKE")
+            ERC20Permit("WeWakeCoin")
+            Ownable2Step(owner_)
+        {
+        transferOwnership(owner_);
+            // Токеномика: 10% team, 10% eco, 10% treasury, 70% owner (multисиг)
+            uint256 total = 2_150_000_000 * 10**decimals();
+            _mint(team_, total * 10 / 100);
+            _mint(eco_, total * 10 / 100);
+            _mint(treasury_, total * 10 / 100);
+            _mint(owner_, total * 70 / 100);
+            multisig = owner_;
+            transferOwnership(owner_);
+        }
+    modifier onlyAdmin() {
+        require(msg.sender == owner() || msg.sender == multisig, "WeWake: not admin");
+        _;
     }
 
     /**
@@ -71,13 +88,13 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
      * - Contract must not already be paused
      */
     /// @notice Приостановить все трансферы токенов (только multisig/owner)
-    function pause() external onlyOwner {
+    function pause() external onlyAdmin {
         _pause();
         emit ContractPaused(_msgSender());
     }
 
     /// @notice Возобновить все трансферы токенов (только multisig/owner)
-    function unpause() external onlyOwner {
+    function unpause() external onlyAdmin {
         _unpause();
         emit ContractUnpaused(_msgSender());
     }
@@ -90,7 +107,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
      * - Caller must have at least `amount` tokens
      */
     /// @notice Запустить процесс burn с таймлоком (только owner/multisig)
-    function openBurn(uint256 amount) external onlyOwner whenNotPaused {
+    function openBurn(uint256 amount) external onlyAdmin whenNotPaused {
         if (_burnPossibleFromTimestamp != 0) revert BurnProcessAlreadyActive();
         if (amount == 0) revert BurnAmountZero();
         if (balanceOf(address(this)) < amount) revert InsufficientBalanceToBurn();
@@ -102,7 +119,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
      * @notice Завершает процесс сжигания после истечения таймлока.
      */
     /// @notice Завершить процесс burn после истечения таймлока (только owner/multisig)
-    function finishBurn() external onlyOwner whenNotPaused {
+    function finishBurn() external onlyAdmin whenNotPaused {
         uint256 unlockTime = _burnPossibleFromTimestamp;
         if (unlockTime == 0) revert BurnProcessNotInitiated();
         if (block.timestamp < unlockTime) revert BurnTimelockNotExpired(block.timestamp, unlockTime);
@@ -111,6 +128,15 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
         _burnAmount = 0;
         _burnPossibleFromTimestamp = 0;
         emit FinishBurn(block.timestamp, amountToBurn);
+    }
+
+    function cancelBurn() external onlyAdmin whenNotPaused {
+        uint256 amount = _burnAmount;
+        _burnPossibleFromTimestamp = 0;
+        _burnAmount = 0;
+        if (amount > 0) {
+            _transfer(address(this), msg.sender, amount);
+        }
     }
 
     /**
@@ -130,7 +156,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
      * - Contract must have sufficient balance of `token`
      */
     /// @notice Владелец может вернуть ошибочно отправленные токены (кроме WAKE)
-    function rescueERC20(address token, address to, uint256 amount) external onlyOwner {
+    function rescueERC20(address token, address to, uint256 amount) external onlyAdmin {
         require(token != address(this), "WeWake: cannot rescue WAKE tokens");
         require(to != address(0), "WeWake: recipient is zero address");
         require(amount > 0, "WeWake: amount must be greater than 0");
@@ -138,38 +164,28 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
         emit TokensRescued(token, to, amount);
     }
 
+    function rescueETH(address payable to, uint256 amount) external onlyAdmin {
+        require(to != address(0), "WeWake: zero address");
+        require(amount > 0, "WeWake: amount must be greater than 0");
+        (bool sent, ) = to.call{value: amount}("");
+        require(sent, "WeWake: failed to send ETH");
+    }
+
+    function setMultisig(address newMultisig) external onlyOwner {
+        require(newMultisig != address(0), "WeWake: zero address");
+        multisig = newMultisig;
+    }
+
     // --- Overrides (требуются Solidity для разрешения конфликтов наследования) ---
 
     // --- Overrides для корректного наследования (Certik, OZ) ---
-    function nonces(address owner) public view override(ERC20Permit, ERC20Votes) returns (uint256) {
-        return super.nonces(owner);
-    }
 
     function _update(address from, address to, uint256 amount)
         internal
         override(ERC20, ERC20Votes, ERC20Pausable)
     {
+        if (paused()) revert("WeWake: token transfer while paused");
         super._update(from, to, amount);
     }
 
-    function _afterTokenTransfer(address from, address to, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
-        super._afterTokenTransfer(from, to, amount);
-    }
-
-    function _mint(address to, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
-        super._mint(to, amount);
-    }
-
-    function _burn(address account, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
-        super._burn(account, amount);
-    }
 }

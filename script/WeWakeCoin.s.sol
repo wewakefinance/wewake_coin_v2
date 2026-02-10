@@ -12,7 +12,11 @@ contract WeWakeCoinScript is Script {
         vm.startBroadcast();
 
         // Deploy the contract
-        WeWakeCoin token = new WeWakeCoin(daoMultisig);
+        // TODO: Укажите реальные адреса team, eco, treasury
+        address team = address(0x2);
+        address eco = address(0x3);
+        address treasury = address(0x4);
+        WeWakeCoin token = new WeWakeCoin(daoMultisig, team, eco, treasury);
 
         // Stop broadcasting transactions
         vm.stopBroadcast();
