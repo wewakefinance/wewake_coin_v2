@@ -80,4 +80,35 @@ contract WeWakeGovernanceTest is Test {
         // Check paused
         assertTrue(token.paused());
     }
+
+    function testVoteAgainst() public {
+        token.delegate(address(this));
+        
+        bytes memory callData = abi.encodeWithSignature("pause()");
+        address[] memory targets = new address[](1);
+        targets[0] = address(token);
+        uint256[] memory values = new uint256[](1);
+        values[0] = 0;
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = callData;
+        string memory description = "Pause 2";
+        
+        uint256 proposalId = governor.propose(targets, values, calldatas, description);
+        
+        vm.roll(governor.proposalSnapshot(proposalId) + 1);
+        
+        // Vote Against (0)
+        governor.castVote(proposalId, 0);
+        
+        vm.roll(governor.proposalDeadline(proposalId) + 1);
+        
+        // Should be defeated because quorum not reached (wait, if I vote against, does it count for quorum? Yes usually)
+        // But support is 0. 
+        // 4% quorum. If I hold 70% of tokens, my 0 vote makes quorum correct? 
+        // Logic: if (forVotes > againstVotes) and (forVotes + abstainVotes >= quorum).
+        // Wait, different implementations exist. Standard GovernorCountingSimple:
+        // Returns true if `forVotes > againstVotes` AND `forVotes + againstVotes + abstainVotes >= quorum` (if counting simple)
+        // Let's check state.
+        assertTrue(governor.state(proposalId) == IGovernor.ProposalState.Defeated);
+    }
 }

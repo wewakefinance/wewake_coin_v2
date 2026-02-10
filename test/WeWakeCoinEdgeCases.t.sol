@@ -70,4 +70,70 @@ contract WeWakeCoinEdgeCasesTest is Test {
         token.rescueEth(payable(alice), 1 ether);
         assertEq(alice.balance, before + 1 ether);
     }
+
+    function testOpenBurnReverts() public {
+        vm.startPrank(multisig);
+        
+        // 1. Amount 0
+        vm.expectRevert(WeWakeCoin.BurnAmountZero.selector);
+        token.openBurn(0);
+
+        // 2. Insufficient balance
+        uint256 ts = token.totalSupply();
+        vm.expectRevert(WeWakeCoin.InsufficientBalanceToBurn.selector);
+        token.openBurn(ts); 
+
+        uint256 validAmount = 1000;
+        vm.stopPrank();
+        
+        token.transfer(address(token), validAmount);
+        
+        vm.startPrank(multisig);
+        
+        // 3. Already active
+        token.openBurn(validAmount);
+        vm.expectRevert(WeWakeCoin.BurnProcessAlreadyActive.selector);
+        token.openBurn(validAmount);
+        
+        vm.stopPrank();
+    }
+
+    function testRescueReverts() public {
+        vm.startPrank(multisig);
+        
+        // 1. Cannot rescue WAKE
+        vm.expectRevert(bytes("WeWake: cannot rescue WAKE tokens"));
+        token.rescueERC20(address(token), alice, 100);
+        
+        // 2. Zero address
+        address mockToken = address(0x123); 
+        vm.expectRevert(bytes("WeWake: recipient is zero address"));
+        token.rescueERC20(mockToken, address(0), 100);
+        
+        // 3. Amount 0
+        vm.expectRevert(bytes("WeWake: amount must be greater than 0"));
+        token.rescueERC20(mockToken, alice, 0);
+        
+        vm.stopPrank();
+    }
+
+    function testRescueEthReverts() public {
+        vm.startPrank(multisig);
+        
+        // 1. Zero address
+        vm.expectRevert(bytes("WeWake: zero address"));
+        token.rescueEth(payable(address(0)), 1 ether);
+        
+        // 2. Amount 0
+        vm.expectRevert(bytes("WeWake: amount must be greater than 0"));
+        token.rescueEth(payable(alice), 0);
+        
+        vm.stopPrank();
+    }
+
+    function testSetMultisigReverts() public {
+        // Test zero address
+        vm.expectRevert(bytes("WeWake: zero address"));
+        token.setMultisig(address(0));
+    }
 }

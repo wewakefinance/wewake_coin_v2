@@ -86,7 +86,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
         _mint(treasury_, total * 10 / 100);
         _mint(owner_, total * 70 / 100);
         multisig = owner_;
-        transferOwnership(owner_);
+        // transferOwnership(owner_); // Removed: Ownable constructor already sets this
     }
 
     modifier onlyAdmin() {
