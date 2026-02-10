@@ -6,6 +6,7 @@ import {WeWakeCoin} from "../src/WeWakeCoin.sol";
 import {WeWakeGovernor} from "../src/WeWakeGovernor.sol";
 import {WeWakeTimelock} from "../src/WeWakeTimelock.sol";
 import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 contract WeWakeGovernanceTest is Test {
     WeWakeCoin public token;
@@ -110,5 +111,44 @@ contract WeWakeGovernanceTest is Test {
         // Returns true if `forVotes > againstVotes` AND `forVotes + againstVotes + abstainVotes >= quorum` (if counting simple)
         // Let's check state.
         assertTrue(governor.state(proposalId) == IGovernor.ProposalState.Defeated);
+    }
+
+    function testGovernorCoverage() public {
+        // 1. View functions validation
+        assertEq(governor.votingDelay(), 1);
+        assertEq(governor.votingPeriod(), 45818);
+        assertEq(governor.proposalThreshold(), 0);
+
+        // 2. Interface support (ERC165)
+        assertTrue(governor.supportsInterface(type(IGovernor).interfaceId));
+        assertTrue(governor.supportsInterface(type(IERC165).interfaceId));
+
+        // 3. Cancel Proposal Flow
+        token.delegate(address(this));
+        
+        address[] memory targets = new address[](1);
+        targets[0] = address(token);
+        uint256[] memory values = new uint256[](1);
+        values[0] = 0;
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = "";
+        string memory description = "Cancel Me";
+        
+        // Create proposal
+        uint256 proposalId = governor.propose(targets, values, calldatas, description);
+        
+        // Assert state is Pending (since we start at block - 1, and just mined, votingDelay=1)
+        // Actually votingDelay=1 means start is next block. So now it is Pending.
+        require(governor.state(proposalId) == IGovernor.ProposalState.Pending, "Should be Pending");
+        
+        // Cancel logic
+        bytes32 descHash = keccak256(bytes(description));
+        
+        // GovernorTimelockControl allows proposer to cancel
+        // vm.expectEmit(true, true, true, true);
+        // emit IGovernor.ProposalCanceled(proposalId);
+        governor.cancel(targets, values, calldatas, descHash);
+        
+        require(governor.state(proposalId) == IGovernor.ProposalState.Canceled, "Should be Canceled");
     }
 }

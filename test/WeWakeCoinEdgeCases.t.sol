@@ -4,6 +4,12 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {WeWakeCoin} from "../src/WeWakeCoin.sol";
 
+contract RejectEther {
+    receive() external payable {
+        revert("No ETH thanks");
+    }
+}
+
 contract WeWakeCoinEdgeCasesTest is Test {
     WeWakeCoin public token;
     address public owner = address(0x1);
@@ -135,5 +141,19 @@ contract WeWakeCoinEdgeCasesTest is Test {
         // Test zero address
         vm.expectRevert(bytes("WeWake: zero address"));
         token.setMultisig(address(0));
+    }
+
+    function testRescueEthFailsOnRevert() public {
+        vm.deal(address(token), 1 ether);
+        RejectEther rejector = new RejectEther();
+        
+        vm.prank(multisig);
+        vm.expectRevert(bytes("WeWake: failed to send ETH"));
+        token.rescueEth(payable(address(rejector)), 1 ether);
+    }
+
+    function testNoncesUsage() public view {
+        // Просто вызываем для покрытия
+        token.nonces(address(this));
     }
 }
