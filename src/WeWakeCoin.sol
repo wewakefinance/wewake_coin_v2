@@ -69,8 +69,12 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
             transferOwnership(owner_);
         }
     modifier onlyAdmin() {
-        require(msg.sender == owner() || msg.sender == multisig, "WeWake: not admin");
+        _checkAdmin();
         _;
+    }
+
+    function _checkAdmin() internal view {
+        require(msg.sender == owner() || msg.sender == multisig, "WeWake: not admin");
     }
 
     /**
@@ -167,7 +171,7 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
         emit TokensRescued(token, to, amount);
     }
 
-    function rescueETH(address payable to, uint256 amount) external onlyAdmin {
+    function rescueEth(address payable to, uint256 amount) external onlyAdmin {
         require(to != address(0), "WeWake: zero address");
         require(amount > 0, "WeWake: amount must be greater than 0");
         (bool sent, ) = to.call{value: amount}("");

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {WeWakeCoin} from "../src/WeWakeCoin.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract MockERC20 is ERC20 {
@@ -42,14 +41,16 @@ contract WeWakeCoinTest is Test {
 
         vm.prank(team);
         vm.expectRevert(bytes("WeWake: token transfer while paused"));
-        token.transfer(alice, 1);
+        bool s = token.transfer(alice, 1); 
+        require(!s || s); // silence unused variable if needed, though solidity 0.8 might not care here
 
         vm.prank(owner);
         token.unpause();
 
         uint256 teamBal = token.balanceOf(team);
         vm.prank(team);
-        token.transfer(alice, 1);
+        bool success = token.transfer(alice, 1);
+        assertTrue(success);
         assertEq(token.balanceOf(alice), 1);
         assertEq(token.balanceOf(team), teamBal - 1);
     }

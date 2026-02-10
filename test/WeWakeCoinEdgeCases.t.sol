@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {WeWakeCoin} from "../src/WeWakeCoin.sol";
 
 contract WeWakeCoinEdgeCasesTest is Test {
@@ -22,7 +22,8 @@ contract WeWakeCoinEdgeCasesTest is Test {
     function testBurnTimelockEnforced() public {
         uint256 amount = 1000;
         // Перевести токены на контракт для burn
-        token.transfer(address(token), amount);
+        bool success = token.transfer(address(token), amount);
+        assertTrue(success);
         token.openBurn(amount);
         // Try to finish burn before timelock
         vm.expectRevert();
@@ -40,7 +41,8 @@ contract WeWakeCoinEdgeCasesTest is Test {
     function testCancelBurnReturnsTokens() public {
         uint256 amount = 500;
         uint256 balanceBefore = token.balanceOf(address(this));
-        token.transfer(address(token), amount);
+        bool success = token.transfer(address(token), amount);
+        assertTrue(success);
         token.openBurn(amount);
         // Cancel burn
         token.cancelBurn();
@@ -65,7 +67,7 @@ contract WeWakeCoinEdgeCasesTest is Test {
         vm.deal(address(token), 1 ether);
         uint256 before = alice.balance;
         vm.prank(multisig);
-        token.rescueETH(payable(alice), 1 ether);
+        token.rescueEth(payable(alice), 1 ether);
         assertEq(alice.balance, before + 1 ether);
     }
 }

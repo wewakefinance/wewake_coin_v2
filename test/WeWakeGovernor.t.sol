@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {WeWakeCoin} from "../src/WeWakeCoin.sol";
 import {WeWakeGovernor} from "../src/WeWakeGovernor.sol";
 import {WeWakeTimelock} from "../src/WeWakeTimelock.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
 
 contract WeWakeGovernanceTest is Test {
