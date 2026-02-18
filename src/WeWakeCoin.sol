@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
@@ -28,13 +28,23 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
         return super.nonces(owner);
     }
 
-    address public multisig;
-
     // --- Custom Errors for Gas Efficiency ---
+
+    /// @notice Error thrown when trying to start a burn while another is active.
     error BurnProcessAlreadyActive();
+
+    /// @notice Error thrown when the burn amount is zero.
     error BurnAmountZero();
+
+    /// @notice Error thrown when the contract balance is less than the burn amount.
     error InsufficientBalanceToBurn();
+
+    /// @notice Error thrown when trying to finish a burn that wasn't started.
     error BurnProcessNotInitiated();
+
+    /// @notice Error thrown when trying to finish a burn before the timelock expires.
+    /// @param current The current block timestamp.
+    /// @param required The timestamp when the burn can be executed.
     error BurnTimelockNotExpired(uint256 current, uint256 required);
 
     /**
@@ -44,9 +54,32 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
      * @param amount Amount of tokens rescued.
      */
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
+
+    /**
+     * @notice Emitted when the contract is paused.
+     * @param account The address that triggered the pause.
+     */
     event ContractPaused(address indexed account);
+
+    /**
+     * @notice Emitted when the contract is unpaused.
+     * @param account The address that triggered the unpause.
+     */
     event ContractUnpaused(address indexed account);
+
+    /**
+     * @notice Emitted when tokens are burned.
+     * @param account The address from which tokens were burned.
+     * @param amount The amount of tokens burned.
+     * @param totalSupply The new total supply after burning.
+     */
     event TokensBurned(address indexed account, uint256 amount, uint256 totalSupply);
+
+    /**
+     * @notice Emitted when a scheduled burn is executed.
+     * @param timestamp The time when the burn was executed.
+     * @param amount The amount of tokens burned.
+     */
     event FinishBurn(uint256 timestamp, uint256 amount);
 
     /**
@@ -68,38 +101,39 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
 
     /**
      * @notice Initializes the contract and distributes initial supply.
-     * @dev Mints 10% to team, 10% to eco, 10% to treasury, and 70% to owner. Sets initial owner and multisig.
-     * @param owner_ Address of the initial owner and multisig wallet.
-     * @param team_ Address of the team wallet.
-     * @param eco_ Address of the ecosystem wallet.
-     * @param treasury_ Address of the treasury wallet.
+     * @dev Mints 10% to team, 10% to eco, 10% to treasury, and 70% to owner.
+     * @param owner_ Address of the initial owner (should be a multisig wallet).
+     * @param team_ Address of the team wallet (or vesting contract).
+     * @param eco_ Address of the ecosystem wallet (or vesting contract).
+     * @param treasury_ Address of the treasury wallet (or vesting contract).
      */
     constructor(address owner_, address team_, address eco_, address treasury_)
         ERC20("WeWakeCoin", "WAKE")
         ERC20Permit("WeWakeCoin")
         Ownable2Step(owner_)
     {
-        // Tokenomics: 10% team, 10% eco, 10% treasury, 70% owner (multisig)
-        uint256 total = 2_150_000_000 * 10**decimals();
+        uint256 total = 1_575_137_505 * 10**decimals();
         _mint(team_, total * 10 / 100);
         _mint(eco_, total * 10 / 100);
         _mint(treasury_, total * 10 / 100);
         _mint(owner_, total * 70 / 100);
-        multisig = owner_;
-        // transferOwnership(owner_); // Removed: Ownable constructor already sets this
     }
 
+    /**
+     * @notice Restricts access to only the contract owner.
+     * @dev Throws if called by any account other than the owner.
+     */
     modifier onlyAdmin() {
         _checkAdmin();
         _;
     }
 
     /**
-     * @notice Checks if the caller is an admin (owner or multisig).
+     * @notice Checks if the caller is an admin (owner).
      * @dev Internal function used by onlyAdmin modifier. Reverts if caller is not authorized.
      */
     function _checkAdmin() internal view {
-        require(msg.sender == owner() || msg.sender == multisig, "WeWake: not admin");
+        require(msg.sender == owner(), "WeWake: not admin");
     }
 
     /**
@@ -200,16 +234,6 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
         require(amount > 0, "WeWake: amount must be greater than 0");
         (bool sent, ) = to.call{value: amount}("");
         require(sent, "WeWake: failed to send ETH");
-    }
-
-    /**
-     * @notice Updates the multisig wallet address.
-     * @dev Can only be called by the contract owner.
-     * @param newMultisig Address of the new multisig wallet.
-     */
-    function setMultisig(address newMultisig) external onlyOwner {
-        require(newMultisig != address(0), "WeWake: zero address");
-        multisig = newMultisig;
     }
 
     // --- Overrides (Solidity overrides for inheritance conflict resolution) ---
