@@ -24,7 +24,23 @@ contract WeWakeGovernanceTest is Test {
         // Deploy token with this contract as owner (msg.sender)
         // We will transfer ownership to Timelock later if needed for governance control,
         // or just keep it for now.
-        token = new WeWakeCoin(address(this), team, eco, treasury);
+        WeWakeCoin.InitialDistribution memory dist = WeWakeCoin.InitialDistribution({
+            presale: makeAddr("presale"),
+            liquidity: makeAddr("liquidity"),
+            ecosystem: eco,
+            treasury: treasury,
+            rewards: makeAddr("rewards"),
+            staking: makeAddr("staking"),
+            reserve: makeAddr("reserve"),
+            team: team,
+            marketing: makeAddr("marketing")
+        });
+        token = new WeWakeCoin(address(this), dist);
+        
+        // Fund admin for voting power
+        vm.prank(treasury);
+        token.transfer(admin, 100_000_000 ether);
+
         address[] memory proposers = new address[](1);
         proposers[0] = address(this);
         address[] memory executors = new address[](1);

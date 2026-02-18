@@ -100,23 +100,65 @@ contract WeWakeCoin is ERC20, ERC20Permit, ERC20Votes, ERC20Pausable, Ownable2St
     uint256 private _burnAmount;
 
     /**
-     * @notice Initializes the contract and distributes initial supply.
-     * @dev Mints 10% to team, 10% to eco, 10% to treasury, and 70% to owner.
-     * @param owner_ Address of the initial owner (should be a multisig wallet).
-     * @param team_ Address of the team wallet (or vesting contract).
-     * @param eco_ Address of the ecosystem wallet (or vesting contract).
-     * @param treasury_ Address of the treasury wallet (or vesting contract).
+     * @notice Struct to hold initial distribution addresses.
      */
-    constructor(address owner_, address team_, address eco_, address treasury_)
+    struct InitialDistribution {
+        address presale;
+        address liquidity;
+        address ecosystem;
+        address treasury;
+        address rewards;
+        address staking;
+        address reserve;
+        address team;
+        address marketing;
+    }
+
+    /**
+     * @notice Initializes the contract and distributes initial supply.
+     * @dev Mints tokens strictly according to the tokenomics distribution.
+     * @param owner_ Address of the initial owner (should be a multisig wallet / Timelock).
+     * @param dist Struct containing addresses for all 9 categories.
+     */
+    constructor(address owner_, InitialDistribution memory dist)
         ERC20("WeWakeCoin", "WAKE")
         ERC20Permit("WeWakeCoin")
         Ownable2Step(owner_)
     {
+        // Check for zero addresses
+        if (
+            dist.presale == address(0) ||
+            dist.liquidity == address(0) ||
+            dist.ecosystem == address(0) ||
+            dist.treasury == address(0) ||
+            dist.rewards == address(0) ||
+            dist.staking == address(0) ||
+            dist.reserve == address(0) ||
+            dist.team == address(0) ||
+            dist.marketing == address(0)
+        ) revert("WeWake: zero address in distribution");
+
         uint256 total = 1_575_137_505 * 10**decimals();
-        _mint(team_, total * 10 / 100);
-        _mint(eco_, total * 10 / 100);
-        _mint(treasury_, total * 10 / 100);
-        _mint(owner_, total * 70 / 100);
+        
+        // Distribution (Total 100%)
+        // Presale: 30%
+        _mint(dist.presale, total * 30 / 100);
+        // Liquidity: 10%
+        _mint(dist.liquidity, total * 10 / 100);
+        // Ecosystem: 14%
+        _mint(dist.ecosystem, total * 14 / 100);
+        // Treasury: 10% + 6% (Unallocated) = 16%
+        _mint(dist.treasury, total * 16 / 100);
+        // User Rewards: 8%
+        _mint(dist.rewards, total * 8 / 100);
+        // Staking Emissions: 8%
+        _mint(dist.staking, total * 8 / 100);
+        // Strategic Reserve: 4%
+        _mint(dist.reserve, total * 4 / 100);
+        // Team: 4%
+        _mint(dist.team, total * 4 / 100);
+        // Marketing: 6%
+        _mint(dist.marketing, total * 6 / 100);
     }
 
     /**

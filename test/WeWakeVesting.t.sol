@@ -26,7 +26,7 @@ contract WeWakeVestingTest is Test {
         duration = 365 days; // 1 year vesting
 
         token = new MockToken();
-        vesting = new WeWakeVesting(beneficiary, start, duration);
+        vesting = new WeWakeVesting(beneficiary, start, duration, 0);
 
         // Fund the vesting contract
         token.transfer(address(vesting), 1000 ether);

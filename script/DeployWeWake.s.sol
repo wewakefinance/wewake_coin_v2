@@ -1,60 +1,113 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {Script, console, console2} from "forge-std/Script.sol";
 import {WeWakeCoin} from "../src/WeWakeCoin.sol";
 import {WeWakeGovernor} from "../src/WeWakeGovernor.sol";
 import {WeWakeTimelock} from "../src/WeWakeTimelock.sol";
+import {WeWakeVesting} from "../src/WeWakeVesting.sol";
+import {WeWakePresaleClaim} from "../src/WeWakePresaleClaim.sol";
 
 contract DeployWeWake is Script {
-    function run() external returns (WeWakeCoin, WeWakeTimelock, WeWakeGovernor) {
-        // --- Настройки ---
-        address multisigSafe = vm.envAddress("MULTISIG_SAFE");
-        address team = vm.envAddress("TEAM_WALLET");
-        address ecosystem = vm.envAddress("ECOSYSTEM_WALLET");
-        address treasury = vm.envAddress("TREASURY_WALLET");
+    // Vesting Addresses
+    address liquidityVesting;
+    address ecoVesting;
+    address treasuryVesting;
+    address rewardsVesting;
+    address stakingVesting;
+    address reserveVesting;
+    address teamVesting;
+    address marketingVesting;
+
+    function run() external returns (
+        WeWakeCoin token,
+        WeWakeTimelock timelock,
+        WeWakeGovernor governor,
+        WeWakePresaleClaim presaleClaim
+    ) {
+        address admin = vm.envOr("ADMIN_ADDRESS", msg.sender);
+        bytes32 merkleRoot = vm.envOr("MERKLE_ROOT", bytes32(0));
 
         vm.startBroadcast();
-        // In test context, msg.sender will be the broadcaster after startBroadcast()
-        address admin = vm.envOr("ADMIN_ADDRESS", msg.sender);
+
+        // 1. Timelock
+        timelock = new WeWakeTimelock(
+            2 days,
+            new address[](0),
+            new address[](0),
+            admin // Use resolved admin address. In test, set ADMIN_ADDRESS to Broadcaster (0x180...).
+        );
+
+        // 2. Vesting Wallets (Scoped to avoid stack too deep)
+        uint64 start = uint64(block.timestamp);
+        uint64 month = 30 days;
         
-        // Debug
-        // console2.log("Admin for timelock:", admin);
-        // console2.log("Msg.sender:", msg.sender);
+        {
+            liquidityVesting = address(new WeWakeVesting(admin, start, 0, 0));
+            ecoVesting = address(new WeWakeVesting(admin, start, 24 * month, 6 * month));
+            treasuryVesting = address(new WeWakeVesting(admin, start, 36 * month, 12 * month));
+            rewardsVesting = address(new WeWakeVesting(admin, start, 24 * month, 0));
+        }
+        {
+            stakingVesting = address(new WeWakeVesting(admin, start, 36 * month, 0));
+            reserveVesting = address(new WeWakeVesting(admin, start, 48 * month, 12 * month));
+            teamVesting = address(new WeWakeVesting(admin, start, 48 * month, 12 * month));
+            marketingVesting = address(new WeWakeVesting(admin, start, 12 * month, 0));
+        }
 
-        // 1. Деплой токена (владелец временно deployer)
-        WeWakeCoin token = new WeWakeCoin(admin, team, ecosystem, treasury);
+        // 3. Presale Claim
+        // Pass admin as initial owner
+        presaleClaim = new WeWakePresaleClaim(
+            admin,
+            address(0), 
+            merkleRoot,
+            start,
+            12 * month,
+            3 * month
+        );
 
-        // 2. Деплой Timelock (админ временно deployer)
-        address[] memory proposers = new address[](0);
-        address[] memory executors = new address[](0);
-        WeWakeTimelock timelock = new WeWakeTimelock(2 days, proposers, executors, admin);
+        // 4. Token Deployment
+        // Note: We use `msg.sender` as initial owner.
+        // But run() caller (msg.sender) != Broadcaster (0x180...).
+        // But broadcast tx comes from Broadcaster.
+        // So we should set initial owner to Broadcaster (admin).
+        
+        token = new WeWakeCoin(admin, WeWakeCoin.InitialDistribution({
+            presale: address(presaleClaim),
+            liquidity: liquidityVesting,
+            ecosystem: ecoVesting,
+            treasury: treasuryVesting,
+            rewards: rewardsVesting,
+            staking: stakingVesting,
+            reserve: reserveVesting,
+            team: teamVesting,
+            marketing: marketingVesting
+        }));
 
-        // 3. Деплой Governor
-        WeWakeGovernor governor = new WeWakeGovernor(token, timelock);
+        // 5. Connect Presale
+        presaleClaim.setToken(address(token));
 
-        // --- Настройка ролей ---
-        // Governor должен быть Proposer
+        // 6. Governor Deployment
+        governor = new WeWakeGovernor(token, timelock);
+
+        // 7. Setup Roles & Ownership
         timelock.grantRole(timelock.PROPOSER_ROLE(), address(governor));
-        // Governor должен быть Executor (если GovernorTimelockControl требует)
-        // Но обычно executor - это 0x0 или специфический адрес.
-        // GovernorTimelockControl: governor calls timelock via execute.
-        // The governor needs to be proposer.
-        
-        // TimelockExecutorRole is usually open (address(0)) so anyone can execute ready proposals.
-        timelock.grantRole(timelock.EXECUTOR_ROLE(), address(0));
+        timelock.grantRole(timelock.EXECUTOR_ROLE(), address(0)); 
         timelock.grantRole(timelock.CANCELLER_ROLE(), address(governor));
 
-        // --- Передача прав Safe ---
-        // Токен: передаем права Safe
-        token.transferOwnership(multisigSafe);
+        timelock.grantRole(timelock.DEFAULT_ADMIN_ROLE(), address(timelock)); 
         
-        // Timelock: передаем права Safe (revoke deployer, grant Safe)
-        timelock.grantRole(timelock.DEFAULT_ADMIN_ROLE(), multisigSafe);
-        timelock.revokeRole(timelock.DEFAULT_ADMIN_ROLE(), admin);
+        // This fails if broadcaster (0x180...) != admin (0x180...). Matches in test.
+        timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), admin);
+
+        token.transferOwnership(address(timelock));
+        presaleClaim.transferOwnership(address(timelock));
+        
+        console2.log("Token:", address(token));
+        console2.log("Timelock:", address(timelock));
+        console2.log("Governor:", address(governor));
+        console2.log("PresaleClaim:", address(presaleClaim));
 
         vm.stopBroadcast();
-
-        return (token, timelock, governor);
     }
 }

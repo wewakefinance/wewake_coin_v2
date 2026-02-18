@@ -21,7 +21,23 @@ contract WeWakeCoinEdgeCasesTest is Test {
     function setUp() public {
         owner = address(this);
         // Deploy token with this contract as owner (msg.sender)
-        token = new WeWakeCoin(owner, team, eco, treasury);
+        WeWakeCoin.InitialDistribution memory dist = WeWakeCoin.InitialDistribution({
+            presale: makeAddr("presale"),
+            liquidity: makeAddr("liquidity"),
+            ecosystem: eco,
+            treasury: treasury,
+            rewards: makeAddr("rewards"),
+            staking: makeAddr("staking"),
+            reserve: makeAddr("reserve"),
+            team: team,
+            marketing: makeAddr("marketing")
+        });
+        token = new WeWakeCoin(owner, dist);
+
+        // Fund owner (address(this)) to act as admin/funder for tests
+        address treasuryAddr = dist.treasury;
+        vm.prank(treasuryAddr);
+        token.transfer(owner, 1_000_000 ether);
     }
 
     function testBurnTimelockEnforced() public {

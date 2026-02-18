@@ -22,8 +22,20 @@ contract WeWakeCoinTest is Test {
     address public bob = address(0x6);
 
     function setUp() public {
+        WeWakeCoin.InitialDistribution memory dist = WeWakeCoin.InitialDistribution({
+            presale: makeAddr("presale"),
+            liquidity: makeAddr("liquidity"),
+            ecosystem: eco,
+            treasury: treasury,
+            rewards: makeAddr("rewards"),
+            staking: makeAddr("staking"),
+            reserve: makeAddr("reserve"),
+            team: team,
+            marketing: makeAddr("marketing")
+        });
+
         vm.prank(owner);
-        token = new WeWakeCoin(owner, team, eco, treasury);
+        token = new WeWakeCoin(owner, dist);
     }
 
     function testTwoStepOwnership() public {
